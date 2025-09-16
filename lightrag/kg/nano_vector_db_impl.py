@@ -137,7 +137,7 @@ class NanoVectorDBStorage(BaseVectorStorage):
             )
 
     async def query(
-        self, query: str, top_k: int, query_embedding: list[float] = None
+        self, query: str, top_k: int, query_embedding: list[float] = None, filter_doc_ids: list[str] = None
     ) -> list[dict[str, Any]]:
         # Use provided embedding or compute it
         if query_embedding is not None:
@@ -155,15 +155,43 @@ class NanoVectorDBStorage(BaseVectorStorage):
             top_k=top_k,
             better_than_threshold=self.cosine_better_than_threshold,
         )
-        results = [
-            {
-                **{k: v for k, v in dp.items() if k != "vector"},
-                "id": dp["__id__"],
-                "distance": dp["__metrics__"],
-                "created_at": dp.get("__created_at__"),
-            }
-            for dp in results
-        ]
+        
+        # Apply document ID filtering if specified
+        if filter_doc_ids:
+            # Only filter for chunks namespace
+            if "chunks" in self.namespace:
+                filtered_results = []
+                for dp in results:
+                    full_doc_id = dp.get("full_doc_id", "")
+                    if full_doc_id in filter_doc_ids:
+                        filtered_results.append({
+                            **{k: v for k, v in dp.items() if k != "vector"},
+                            "id": dp["__id__"],
+                            "distance": dp["__metrics__"],
+                            "created_at": dp.get("__created_at__"),
+                        })
+                results = filtered_results[:top_k]
+            else:
+                # For non-chunks namespaces, no filtering needed
+                results = [
+                    {
+                        **{k: v for k, v in dp.items() if k != "vector"},
+                        "id": dp["__id__"],
+                        "distance": dp["__metrics__"],
+                        "created_at": dp.get("__created_at__"),
+                    }
+                    for dp in results
+                ]
+        else:
+            results = [
+                {
+                    **{k: v for k, v in dp.items() if k != "vector"},
+                    "id": dp["__id__"],
+                    "distance": dp["__metrics__"],
+                    "created_at": dp.get("__created_at__"),
+                }
+                for dp in results
+            ]
         return results
 
     @property

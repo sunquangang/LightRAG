@@ -1047,7 +1047,7 @@ class MilvusVectorDBStorage(BaseVectorStorage):
         return results
 
     async def query(
-        self, query: str, top_k: int, query_embedding: list[float] = None
+        self, query: str, top_k: int, query_embedding: list[float] = None, filter_doc_ids: list[str] = None
     ) -> list[dict[str, Any]]:
         # Ensure collection is loaded before querying
         self._ensure_collection_loaded()
@@ -1063,16 +1063,26 @@ class MilvusVectorDBStorage(BaseVectorStorage):
         # Include all meta_fields (created_at is now always included)
         output_fields = list(self.meta_fields)
 
+        search_params = {
+            "metric_type": "COSINE",
+            "params": {"radius": self.cosine_better_than_threshold},
+        }
+        
+        # Add filtering expression if document IDs are specified and for chunks only
+        filter_expr = None
+        if filter_doc_ids and "chunks" in self.namespace:
+            doc_list = ', '.join([f'"{doc_id}"' for doc_id in filter_doc_ids])
+            filter_expr = f'full_doc_id in [{doc_list}]'
+
         results = self._client.search(
             collection_name=self.final_namespace,
             data=embedding,
             limit=top_k,
             output_fields=output_fields,
-            search_params={
-                "metric_type": "COSINE",
-                "params": {"radius": self.cosine_better_than_threshold},
-            },
+            search_params=search_params,
+            expr=filter_expr,
         )
+        
         return [
             {
                 **dp["entity"],

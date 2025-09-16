@@ -2620,7 +2620,7 @@ async def _get_vector_context(
         cosine_threshold = chunks_vdb.cosine_better_than_threshold
 
         results = await chunks_vdb.query(
-            query, top_k=search_top_k, query_embedding=query_embedding
+            query, top_k=search_top_k, query_embedding=query_embedding, filter_doc_ids=query_param.ids
         )
         if not results:
             logger.info(
@@ -2635,6 +2635,7 @@ async def _get_vector_context(
                     "content": result["content"],
                     "created_at": result.get("created_at", None),
                     "file_path": result.get("file_path", "unknown_source"),
+                    "full_doc_id": result.get("full_doc_id", "unknown_doc"),  # Add full_doc_id for debugging
                     "source_type": "vector",  # Mark the source type
                     "chunk_id": result.get("id"),  # Add chunk_id for deduplication
                 }
@@ -3060,6 +3061,7 @@ async def _merge_all_chunks(
                         "content": chunk["content"],
                         "file_path": chunk.get("file_path", "unknown_source"),
                         "chunk_id": chunk_id,
+                        "full_doc_id": chunk.get("full_doc_id", "unknown_doc"),
                     }
                 )
 
@@ -3074,6 +3076,7 @@ async def _merge_all_chunks(
                         "content": chunk["content"],
                         "file_path": chunk.get("file_path", "unknown_source"),
                         "chunk_id": chunk_id,
+                        "full_doc_id": chunk.get("full_doc_id", "unknown_doc"),
                     }
                 )
 
@@ -3088,6 +3091,7 @@ async def _merge_all_chunks(
                         "content": chunk["content"],
                         "file_path": chunk.get("file_path", "unknown_source"),
                         "chunk_id": chunk_id,
+                        "full_doc_id": chunk.get("full_doc_id", "unknown_doc"),
                     }
                 )
 
@@ -3493,7 +3497,7 @@ async def _get_node_data(
         f"Query nodes: {query} (top_k:{query_param.top_k}, cosine:{entities_vdb.cosine_better_than_threshold})"
     )
 
-    results = await entities_vdb.query(query, top_k=query_param.top_k)
+    results = await entities_vdb.query(query, top_k=query_param.top_k, filter_doc_ids=query_param.ids)
 
     if not len(results):
         return [], []
@@ -3524,6 +3528,7 @@ async def _get_node_data(
         for k, n, d in zip(results, node_datas, node_degrees)
         if n is not None
     ]
+
 
     use_relations = await _find_most_related_edges_from_entities(
         node_datas,
@@ -3741,18 +3746,32 @@ async def _find_related_text_unit_from_entities(
 
     # Step 6: Build result chunks with valid data and update chunk tracking
     result_chunks = []
-    for i, (chunk_id, chunk_data) in enumerate(zip(unique_chunk_ids, chunk_data_list)):
+    for i, chunk_data in enumerate(chunk_data_list):
         if chunk_data is not None and "content" in chunk_data:
+            # Get the actual chunk_id from chunk_data, not from position mapping
+            actual_chunk_id = chunk_data.get("id")
+            if not actual_chunk_id:
+                logger.warning(f"Chunk data missing 'id' field: {chunk_data}")
+                continue
+
+            # Apply document ID filtering if specified
+            if query_param.ids:
+                full_doc_id = chunk_data.get("full_doc_id", "")
+                logger.info(f"Entity chunk filtering: chunk_id={actual_chunk_id}, full_doc_id={full_doc_id}, requested_ids={query_param.ids}, chunk_data_keys={list(chunk_data.keys())}")
+                if full_doc_id not in query_param.ids:
+                    logger.debug(f"Skipping entity chunk {actual_chunk_id} - document ID {full_doc_id} not in requested IDs")
+                    continue  # Skip chunks not in the specified document IDs
+
             chunk_data_copy = chunk_data.copy()
             chunk_data_copy["source_type"] = "entity"
-            chunk_data_copy["chunk_id"] = chunk_id  # Add chunk_id for deduplication
+            chunk_data_copy["chunk_id"] = actual_chunk_id  # Use actual chunk_id from data
             result_chunks.append(chunk_data_copy)
 
             # Update chunk tracking if provided
             if chunk_tracking is not None:
-                chunk_tracking[chunk_id] = {
+                chunk_tracking[actual_chunk_id] = {
                     "source": "E",
-                    "frequency": chunk_occurrence_count.get(chunk_id, 1),
+                    "frequency": chunk_occurrence_count.get(actual_chunk_id, 1),
                     "order": i + 1,  # 1-based order in final entity-related results
                 }
 
@@ -3769,7 +3788,7 @@ async def _get_edge_data(
         f"Query edges: {keywords} (top_k:{query_param.top_k}, cosine:{relationships_vdb.cosine_better_than_threshold})"
     )
 
-    results = await relationships_vdb.query(keywords, top_k=query_param.top_k)
+    results = await relationships_vdb.query(keywords, top_k=query_param.top_k, filter_doc_ids=query_param.ids)
 
     if not len(results):
         return [], []
@@ -3790,6 +3809,7 @@ async def _get_edge_data(
                     f"Edge {pair} missing 'weight' attribute, using default value 1.0"
                 )
                 edge_props["weight"] = 1.0
+
 
             # Keep edge data without rank, maintain vector search order
             combined = {
@@ -4036,18 +4056,32 @@ async def _find_related_text_unit_from_relations(
 
     # Step 6: Build result chunks with valid data and update chunk tracking
     result_chunks = []
-    for i, (chunk_id, chunk_data) in enumerate(zip(unique_chunk_ids, chunk_data_list)):
+    for i, chunk_data in enumerate(chunk_data_list):
         if chunk_data is not None and "content" in chunk_data:
+            # Get the actual chunk_id from chunk_data, not from position mapping
+            actual_chunk_id = chunk_data.get("id")
+            if not actual_chunk_id:
+                logger.warning(f"Chunk data missing 'id' field: {chunk_data}")
+                continue
+
+            # Apply document ID filtering if specified
+            if query_param.ids:
+                full_doc_id = chunk_data.get("full_doc_id", "")
+                logger.info(f"Relation chunk filtering: chunk_id={actual_chunk_id}, full_doc_id={full_doc_id}, requested_ids={query_param.ids}, chunk_data_keys={list(chunk_data.keys())}")
+                if full_doc_id not in query_param.ids:
+                    logger.debug(f"Skipping relation chunk {actual_chunk_id} - document ID {full_doc_id} not in requested IDs")
+                    continue  # Skip chunks not in the specified document IDs
+
             chunk_data_copy = chunk_data.copy()
             chunk_data_copy["source_type"] = "relationship"
-            chunk_data_copy["chunk_id"] = chunk_id  # Add chunk_id for deduplication
+            chunk_data_copy["chunk_id"] = actual_chunk_id  # Use actual chunk_id from data
             result_chunks.append(chunk_data_copy)
 
             # Update chunk tracking if provided
             if chunk_tracking is not None:
-                chunk_tracking[chunk_id] = {
+                chunk_tracking[actual_chunk_id] = {
                     "source": "R",
-                    "frequency": chunk_occurrence_count.get(chunk_id, 1),
+                    "frequency": chunk_occurrence_count.get(actual_chunk_id, 1),
                     "order": i + 1,  # 1-based order in final relation-related results
                 }
 

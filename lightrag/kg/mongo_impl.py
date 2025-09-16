@@ -1840,8 +1840,14 @@ class MongoVectorDBStorage(BaseVectorStorage):
             },
             {"$addFields": {"score": {"$meta": "vectorSearchScore"}}},
             {"$match": {"score": {"$gte": self.cosine_better_than_threshold}}},
-            {"$project": {"vector": 0}},
         ]
+        
+        # Add ID filtering to the pipeline if specified (only for chunks)
+        if filter_doc_ids and "chunks" in self.namespace:
+            doc_match_conditions = [{"full_doc_id": doc_id} for doc_id in filter_doc_ids]
+            pipeline.append({"$match": {"$or": doc_match_conditions}})
+        
+        pipeline.append({"$project": {"vector": 0}})
 
         # Execute the aggregation pipeline
         cursor = await self._data.aggregate(pipeline, allowDiskUse=True)

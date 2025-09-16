@@ -1620,6 +1620,7 @@ class PGKVStorage(BaseKVStorage):
         )
         params = {"workspace": self.workspace}
         results = await self.db.query(sql, list(params.values()), multirows=True)
+        logger.info(f"PG KV Storage get_by_ids: namespace={self.namespace}, ids={ids}, result_count={len(results) if results else 0}, first_result_keys={list(results[0].keys()) if results else 'None'}")
 
         if results and is_namespace(self.namespace, NameSpace.KV_STORE_TEXT_CHUNKS):
             # Parse llm_cache_list JSON string back to list for each result
@@ -2004,7 +2005,7 @@ class PGVectorStorage(BaseVectorStorage):
 
     #################### query method ###############
     async def query(
-        self, query: str, top_k: int, query_embedding: list[float] = None
+        self, query: str, top_k: int, query_embedding: list[float] = None, filter_doc_ids: list[str] = None
     ) -> list[dict[str, Any]]:
         if query_embedding is not None:
             embedding = query_embedding
@@ -2016,12 +2017,48 @@ class PGVectorStorage(BaseVectorStorage):
 
         embedding_string = ",".join(map(str, embedding))
 
-        sql = SQL_TEMPLATES[self.namespace].format(embedding_string=embedding_string)
-        params = {
-            "workspace": self.workspace,
-            "closer_than_threshold": 1 - self.cosine_better_than_threshold,
-            "top_k": top_k,
-        }
+        # Get base SQL template and modify it to include ID filtering if needed
+        base_sql = SQL_TEMPLATES[self.namespace]
+
+        if filter_doc_ids and "chunks" in self.namespace:
+            # Only filter for chunks table, filter by full_doc_id field
+            # Use proper parameterized query to avoid SQL injection
+            placeholders = []
+            doc_params = []
+            param_counter = 3  # Start from $3 since $1=workspace, $2=threshold
+
+            for doc_id in filter_doc_ids:
+                placeholders.append(f"c.full_doc_id = ${param_counter}")
+                doc_params.append(doc_id)
+                param_counter += 1
+
+            doc_filter = " OR ".join(placeholders)
+            modified_sql = base_sql.replace(
+                "WHERE c.workspace = $1", f"WHERE c.workspace = $1 AND ({doc_filter})"
+            )
+
+            # Update the LIMIT parameter number
+            modified_sql = modified_sql.replace("LIMIT $3", f"LIMIT ${param_counter}")
+            sql = modified_sql.format(embedding_string=embedding_string)
+
+            # Build parameters list in correct order
+            params = {
+                "workspace": self.workspace,
+                "closer_than_threshold": 1 - self.cosine_better_than_threshold,
+            }
+            # Add document ID parameters
+            for i, doc_id in enumerate(doc_params):
+                params[f"doc_id_{i}"] = doc_id
+            params["top_k"] = top_k
+
+        else:
+            sql = base_sql.format(embedding_string=embedding_string)
+            params = {
+                "workspace": self.workspace,
+                "closer_than_threshold": 1 - self.cosine_better_than_threshold,
+                "top_k": top_k,
+            }
+        
         results = await self.db.query(sql, params=list(params.values()), multirows=True)
         return results
 
@@ -4585,6 +4622,7 @@ SQL_TEMPLATES = {
               SELECT c.id,
                      c.content,
                      c.file_path,
+                     c.full_doc_id,
                      EXTRACT(EPOCH FROM c.create_time)::BIGINT AS created_at
               FROM LIGHTRAG_VDB_CHUNKS c
               WHERE c.workspace = $1

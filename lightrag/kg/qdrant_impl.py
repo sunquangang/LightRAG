@@ -212,7 +212,7 @@ class QdrantVectorDBStorage(BaseVectorStorage):
         return results
 
     async def query(
-        self, query: str, top_k: int, query_embedding: list[float] = None
+        self, query: str, top_k: int, query_embedding: list[float] = None, filter_doc_ids: list[str] = None
     ) -> list[dict[str, Any]]:
         if query_embedding is not None:
             embedding = query_embedding
@@ -222,16 +222,30 @@ class QdrantVectorDBStorage(BaseVectorStorage):
             )  # higher priority for query
             embedding = embedding_result[0]
 
+        # Build filter for document IDs if specified
+        query_filter = None
+        if filter_doc_ids and "chunks" in self.namespace:
+            query_filter = models.Filter(
+                should=[
+                    models.FieldCondition(
+                        key="full_doc_id", 
+                        match=models.MatchValue(value=doc_id)
+                    )
+                    for doc_id in filter_doc_ids
+                ]
+            )
+
         results = self._client.search(
             collection_name=self.final_namespace,
             query_vector=embedding,
             limit=top_k,
             with_payload=True,
             score_threshold=self.cosine_better_than_threshold,
+            query_filter=query_filter,
         )
 
         # logger.debug(f"[{self.workspace}] query result: {results}")
-
+        
         return [
             {
                 **dp.payload,

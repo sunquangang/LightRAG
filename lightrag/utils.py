@@ -2801,11 +2801,13 @@ def _convert_to_user_format(
 
     # Convert chunks format (chunks already contain complete data)
     formatted_chunks = []
+    logger.info(f"_convert_to_user_format: processing {len(final_chunks)} chunks, first_chunk_keys={list(final_chunks[0].keys()) if final_chunks else 'None'}")
     for i, chunk in enumerate(final_chunks):
         chunk_data = {
             "content": chunk.get("content", ""),
             "file_path": chunk.get("file_path", "unknown_source"),
             "chunk_id": chunk.get("chunk_id", ""),
+            "full_doc_id": chunk.get("full_doc_id", "unknown_doc"),  # Add for debugging
         }
         formatted_chunks.append(chunk_data)
 

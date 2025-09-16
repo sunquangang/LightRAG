@@ -158,6 +158,11 @@ class QueryParam:
     Default is True to enable reranking when rerank model is available.
     """
 
+    ids: list[str] | None = None
+    """List of document IDs to filter the query results. If provided, only entities, relationships, and chunks 
+    from these specific documents will be considered during retrieval.
+    """
+
 
 @dataclass
 class StorageNameSpace(ABC):
@@ -212,7 +217,7 @@ class BaseVectorStorage(StorageNameSpace, ABC):
 
     @abstractmethod
     async def query(
-        self, query: str, top_k: int, query_embedding: list[float] = None
+        self, query: str, top_k: int, query_embedding: list[float] = None, filter_doc_ids: list[str] = None
     ) -> list[dict[str, Any]]:
         """Query the vector storage and retrieve top_k results.
 
@@ -221,6 +226,8 @@ class BaseVectorStorage(StorageNameSpace, ABC):
             top_k: Number of top results to return
             query_embedding: Optional pre-computed embedding for the query.
                            If provided, skips embedding computation for better performance.
+            filter_doc_ids: Optional list of document IDs to filter results to only those documents.
+                           If provided, only chunks/entities/relations from these documents will be returned.
         """
 
     @abstractmethod
