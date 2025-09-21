@@ -489,6 +489,7 @@ class DocumentsRequest(BaseModel):
 
     Attributes:
         status_filter: Filter by document status, None for all statuses
+        doc_ids: Filter by specific document IDs
         page: Page number (1-based)
         page_size: Number of documents per page (10-200)
         sort_field: Field to sort by ('created_at', 'updated_at', 'id', 'file_path')
@@ -497,6 +498,9 @@ class DocumentsRequest(BaseModel):
 
     status_filter: Optional[DocStatus] = Field(
         default=None, description="Filter by document status, None for all statuses"
+    )
+    doc_ids: Optional[List[str]] = Field(
+        default=None, description="Filter by specific document IDs"
     )
     page: int = Field(default=1, ge=1, description="Page number (1-based)")
     page_size: int = Field(
@@ -509,10 +513,18 @@ class DocumentsRequest(BaseModel):
         default="desc", description="Sort direction"
     )
 
+    @field_validator("doc_ids", mode="after")
+    @classmethod
+    def validate_doc_ids(cls, doc_ids: Optional[List[str]]) -> Optional[List[str]]:
+        if doc_ids is not None and len(doc_ids) == 0:
+            return None  # Convert empty list to None
+        return doc_ids
+
     class Config:
         json_schema_extra = {
             "example": {
                 "status_filter": "PROCESSED",
+                "doc_ids": ["doc_123", "doc_456"],
                 "page": 1,
                 "page_size": 50,
                 "sort_field": "updated_at",
@@ -2374,6 +2386,7 @@ def create_document_routes(
             # Get paginated documents and status counts in parallel
             docs_task = rag.doc_status.get_docs_paginated(
                 status_filter=request.status_filter,
+                doc_ids=request.doc_ids,
                 page=request.page,
                 page_size=request.page_size,
                 sort_field=request.sort_field,

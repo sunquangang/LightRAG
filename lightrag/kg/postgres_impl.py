@@ -5,7 +5,7 @@ import re
 import datetime
 from datetime import timezone
 from dataclasses import dataclass, field
-from typing import Any, Union, final
+from typing import Any, Union, List, final
 import numpy as np
 import configparser
 import ssl
@@ -2543,6 +2543,7 @@ class PGDocStatusStorage(DocStatusStorage):
     async def get_docs_paginated(
         self,
         status_filter: DocStatus | None = None,
+        doc_ids: List[str] | None = None,
         page: int = 1,
         page_size: int = 50,
         sort_field: str = "updated_at",
@@ -2552,6 +2553,7 @@ class PGDocStatusStorage(DocStatusStorage):
 
         Args:
             status_filter: Filter by document status, None for all statuses
+            doc_ids: Filter by specific document IDs
             page: Page number (1-based)
             page_size: Number of documents per page (10-200)
             sort_field: Field to sort by ('created_at', 'updated_at', 'id')
@@ -2586,6 +2588,12 @@ class PGDocStatusStorage(DocStatusStorage):
             param_count += 1
             where_clause += f" AND status=${param_count}"
             params["status"] = status_filter.value
+
+        if doc_ids is not None and len(doc_ids) > 0:
+            param_count += 1
+            # Use ANY() for PostgreSQL array comparison
+            where_clause += f" AND id = ANY(${param_count})"
+            params["doc_ids"] = doc_ids
 
         # Build ORDER BY clause
         order_clause = f"ORDER BY {sort_field} {sort_direction.upper()}"

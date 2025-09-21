@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import os
-from typing import Any, Union, final
+from typing import Any, Union, List, final
 
 from lightrag.base import (
     DocProcessingStatus,
@@ -192,6 +192,7 @@ class JsonDocStatusStorage(DocStatusStorage):
     async def get_docs_paginated(
         self,
         status_filter: DocStatus | None = None,
+        doc_ids: List[str] | None = None,
         page: int = 1,
         page_size: int = 50,
         sort_field: str = "updated_at",
@@ -201,6 +202,7 @@ class JsonDocStatusStorage(DocStatusStorage):
 
         Args:
             status_filter: Filter by document status, None for all statuses
+            doc_ids: Filter by specific document IDs
             page: Page number (1-based)
             page_size: Number of documents per page (10-200)
             sort_field: Field to sort by ('created_at', 'updated_at', 'id')
@@ -228,6 +230,10 @@ class JsonDocStatusStorage(DocStatusStorage):
 
         async with self._storage_lock:
             for doc_id, doc_data in self._data.items():
+                # Apply doc_ids filter
+                if doc_ids is not None and len(doc_ids) > 0 and doc_id not in doc_ids:
+                    continue
+
                 # Apply status filter
                 if (
                     status_filter is not None

@@ -5,7 +5,7 @@ import numpy as np
 import configparser
 import asyncio
 
-from typing import Any, Union, final
+from typing import Any, Union, List, final
 
 from ..base import (
     BaseGraphStorage,
@@ -587,6 +587,7 @@ class MongoDocStatusStorage(DocStatusStorage):
     async def get_docs_paginated(
         self,
         status_filter: DocStatus | None = None,
+        doc_ids: List[str] | None = None,
         page: int = 1,
         page_size: int = 50,
         sort_field: str = "updated_at",
@@ -596,6 +597,7 @@ class MongoDocStatusStorage(DocStatusStorage):
 
         Args:
             status_filter: Filter by document status, None for all statuses
+            doc_ids: Filter by specific document IDs
             page: Page number (1-based)
             page_size: Number of documents per page (10-200)
             sort_field: Field to sort by ('created_at', 'updated_at', '_id')
@@ -622,6 +624,8 @@ class MongoDocStatusStorage(DocStatusStorage):
         query_filter = {}
         if status_filter is not None:
             query_filter["status"] = status_filter.value
+        if doc_ids is not None and len(doc_ids) > 0:
+            query_filter["_id"] = {"$in": doc_ids}
 
         # Get total count
         total_count = await self._data.count_documents(query_filter)
@@ -1810,7 +1814,7 @@ class MongoVectorDBStorage(BaseVectorStorage):
         return list_data
 
     async def query(
-        self, query: str, top_k: int, query_embedding: list[float] = None
+        self, query: str, top_k: int, query_embedding: list[float] = None, filter_doc_ids: list[str] = None
     ) -> list[dict[str, Any]]:
         """Queries the vector database using Atlas Vector Search."""
         if query_embedding is not None:
@@ -1841,12 +1845,12 @@ class MongoVectorDBStorage(BaseVectorStorage):
             {"$addFields": {"score": {"$meta": "vectorSearchScore"}}},
             {"$match": {"score": {"$gte": self.cosine_better_than_threshold}}},
         ]
-        
+
         # Add ID filtering to the pipeline if specified (only for chunks)
         if filter_doc_ids and "chunks" in self.namespace:
             doc_match_conditions = [{"full_doc_id": doc_id} for doc_id in filter_doc_ids]
             pipeline.append({"$match": {"$or": doc_match_conditions}})
-        
+
         pipeline.append({"$project": {"vector": 0}})
 
         # Execute the aggregation pipeline

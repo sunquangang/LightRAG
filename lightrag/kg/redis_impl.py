@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Any, final, Union
+from typing import Any, final, Union, List
 from dataclasses import dataclass
 import pipmaster as pm
 import configparser
@@ -919,6 +919,7 @@ class RedisDocStatusStorage(DocStatusStorage):
     async def get_docs_paginated(
         self,
         status_filter: DocStatus | None = None,
+        doc_ids: List[str] | None = None,
         page: int = 1,
         page_size: int = 50,
         sort_field: str = "updated_at",
@@ -928,6 +929,7 @@ class RedisDocStatusStorage(DocStatusStorage):
 
         Args:
             status_filter: Filter by document status, None for all statuses
+            doc_ids: Filter by specific document IDs
             page: Page number (1-based)
             page_size: Number of documents per page (10-200)
             sort_field: Field to sort by ('created_at', 'updated_at', 'id')
@@ -985,6 +987,10 @@ class RedisDocStatusStorage(DocStatusStorage):
 
                                     # Extract document ID from key
                                     doc_id = key.split(":", 1)[1]
+
+                                    # Apply doc_ids filter
+                                    if doc_ids is not None and len(doc_ids) > 0 and doc_id not in doc_ids:
+                                        continue
 
                                     # Prepare document data
                                     data = doc_data.copy()
